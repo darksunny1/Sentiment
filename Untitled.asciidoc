@@ -1,0 +1,353 @@
++*In[ ]:*+
+[source, ipython3]
+----
+import numpy as np 
+import pandas as pd 
+import seaborn as sns 
+import matplotlib.pyplot as plt
+plt.style.use('ggplot')
+from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import classification_report, confusion_matrix
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer 
+from sklearn.model_selection import train_test_split
+from mlxtend.plotting import plot_confusion_matrix
+import matplotlib.cm as cm
+from matplotlib import rcParams
+from collections import Counter
+from nltk.tokenize import RegexpTokenizer
+import re
+import string
+from tensorflow.keras.layers import LSTM, Activation, Dense, Dropout, Input, Embedding
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import RMSprop
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing import sequence
+%matplotlib inline
+
+import warnings
+warnings.filterwarnings("ignore")
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data = pd.read_csv("tra.csv.zip", encoding = "latin-1", engine="python")
+data.columns = ["label", "time", "date", "query", "username", "text"]
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data=data[['text','label']]
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data['label'][data['label']==4]=1
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data_pos = data[data['label'] == 1]
+data_neg = data[data['label'] == 0]
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data_pos = data_pos.iloc[:int(399999)]
+data_neg = data_neg.iloc[:int(399999)]
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data = pd.concat([data_pos, data_neg])
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+data['text']=data['text'].str.lower()
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+import nltk
+nltk.download('stopwords')
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+#Cleaning and removing Stop words of english
+stopwords_list = stopwords.words('english')
+from nltk.corpus import stopwords
+", ".join(stopwords.words('english'))
+
+#Cleaning and removing punctuations
+english_punctuations = string.punctuation
+punctuations_list = english_punctuations
+def cleaning_punctuations(text):
+    translator = str.maketrans('', '', punctuations_list)
+    return text.translate(translator)
+data['text']= data['text'].apply(lambda x: cleaning_punctuations(x))
+data['text'].tail()
+
+#Cleaning and removing repeating characters
+def cleaning_repeating_char(text):
+    return re.sub(r'(.)\1+', r'\1', text)
+data['text'] = data['text'].apply(lambda x: cleaning_repeating_char(x))
+data['text'].tail()
+
+#Cleaning and removing email
+def cleaning_email(data):
+    return re.sub('@[^\s]+', ' ', data)
+data['text']= data['text'].apply(lambda x: cleaning_email(x))
+data['text'].tail()
+
+#Cleaning and removing URL's
+def cleaning_URLs(data):
+    return re.sub('((www\.[^\s]+)|(https?://[^\s]+))',' ',data)
+data['text'] = data['text'].apply(lambda x: cleaning_URLs(x))
+data['text'].tail()
+
+#Cleaning and removing Numeric numbers
+def cleaning_numbers(data):
+    return re.sub('[0-9]+', '', data)
+data['text'] = data['text'].apply(lambda x: cleaning_numbers(x))
+data['text'].tail()
+
+#Getting tokenization of tweet text
+tokenizer = RegexpTokenizer(r'\w+')
+data['text'] = data['text'].apply(tokenizer.tokenize)
+data['text'].head()
+
+#Applying Stemming
+st = nltk.PorterStemmer()
+def stemming_on_text(data):
+    text = [st.stem(word) for word in data]
+    return data
+
+data['text']= data['text'].apply(lambda x: stemming_on_text(x))
+data['text'].head()
+
+
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+import nltk
+nltk.download('wordnet')
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+#Applying Lemmatizer
+lm = nltk.WordNetLemmatizer()
+def lemmatizer_on_text(data):
+    text = [lm.lemmatize(word) for word in data]
+    return data
+
+data['text'] = data['text'].apply(lambda x: lemmatizer_on_text(x))
+data['text'].head()
+
+
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+X=data.text
+y=data.label
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+max_len = 500
+tok = Tokenizer(num_words=2000)
+tok.fit_on_texts(X)
+sequences = tok.texts_to_sequences(X)
+sequences_matrix = sequence.pad_sequences(sequences,maxlen=max_len)
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+seqnc_lngth = 128
+embddng_dim = 64
+vocab_size = 10000
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+from keras.datasets import imdb
+(X_train, Y_train), (X_test, Y_test) = imdb.load_data(num_words=vocab_size,
+skip_top=20)
+X_train = sequence.pad_sequences(X_train,
+maxlen=seqnc_lngth).astype('float32')
+X_test = sequence.pad_sequences(X_test,
+maxlen=seqnc_lngth).astype('float32')
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+X_train, X_test, Y_train, Y_test = train_test_split(sequences_matrix, y, test_size=0.3, random_state=2)
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+def tensorflow_based_model(): #Defined tensorflow_based_model function for training tenforflow based model
+    inputs = Input(name='inputs',shape=[max_len])#step1
+    layer = Embedding(2000,50,input_length=max_len)(inputs) #step2
+    layer = LSTM(64)(layer) #step3
+    layer = Dense(256,name='FC1')(layer) #step4
+    layer = Activation('relu')(layer) # step5
+    layer = Dropout(0.5)(layer) # step6
+    layer = Dense(1,name='out_layer')(layer) #step4 again but this time its giving only one output as because we need to classify the tweet as positive or negative
+    layer = Activation('sigmoid')(layer) #step5 but this time activation function is sigmoid for only one output.
+    model = Model(inputs=inputs,outputs=layer) #here we are getting the final output value in the model for classification
+    return model #function returning the value when we call it
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+model = tensorflow_based_model() # here we are calling the function of created model
+model.compile(loss='binary_crossentropy',optimizer=RMSprop(),metrics=['accuracy'])
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+import matplotlib.pyplot as plt
+#callbacks
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
+min_delta=1e-4, mode='min', verbose=1)
+stop_alg = EarlyStopping(monitor='val_loss', patience=7,
+restore_best_weights=True, verbose=1)
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+hist = model.fit(X_train, Y_train, batch_size=100, epochs=6,
+callbacks=[stop_alg, reduce_lr], shuffle=True,
+validation_data=(X_test, Y_test))
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+#Naive Bayes
+from sklearn.naive_bayes import MultinomialNB
+model_2 = MultinomialNB()
+model_2.fit(x_train,y_train)
+pred_2 = model_2.predict(x_test)
+cr2    = classification_report(y_test,pred_2)
+print(cr2)
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+#confusion matrix of naive bayes
+y_pred = model_2.predict(x_test)
+y_pred = (y_pred > 0.5)
+
+from sklearn.metrics import confusion_matrix
+cm=confusion_matrix(y_test, y_pred)
+print("confusion_matrix:")
+print(cm)
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+inpt_vec = Input(shape=(seqnc_lngth,))
+l1 = Embedding(vocab_size, embddng_dim, input_length=seqnc_lngth)(inpt_vec)
+l2 = Dropout(0.3)(l1)
+l3 = LSTM(32)(l2)
+l4 = BatchNormalization()(l3)
+l5 = Dropout(0.2)(l4)
+output = Dense(1, activation='sigmoid')(l5)
+lstm = Model(inpt_vec, output)
+lstm.compile(loss='binary_crossentropy', optimizer='adam',
+metrics=['accuracy'])
+lstm.summary()
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+import matplotlib.pyplot as plt
+#callbacks
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
+min_delta=1e-4, mode='min', verbose=1)
+stop_alg = EarlyStopping(monitor='val_loss', patience=7,
+restore_best_weights=True, verbose=1)
+#training
+hist = lstm.fit(x_train, y_train, batch_size=100, epochs=1000,
+callbacks=[stop_alg, reduce_lr], shuffle=True,
+validation_data=(x_test, y_test))
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+# save and plot training process
+lstm.save_weights("lstm.hdf5")
+fig = plt.figure(figsize=(10,6))
+plt.plot(hist.history['loss'], color='#785ef0')
+plt.plot(hist.history['val_loss'], color='#dc267f')
+plt.title('Model Loss Progress')
+plt.ylabel('Brinary Cross-Entropy Loss')
+plt.xlabel('Epoch')
+plt.legend(['Training Set', 'Test Set'], loc='upper right')
+plt.show()
+----
+
+
++*In[ ]:*+
+[source, ipython3]
+----
+
+----
